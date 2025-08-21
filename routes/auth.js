@@ -50,9 +50,29 @@ router.post('/register', async (req, res) => {
 // Login
 router.post('/login', async (req, res) => {
 	try {
+		console.log('=== LOGIN REQUEST DEBUG ===');
+		console.log('Raw body:', req.body);
+		console.log('Body type:', typeof req.body);
+		console.log('Body keys:', req.body ? Object.keys(req.body) : 'No body');
+		console.log('Content-Type:', req.headers['content-type']);
+		
 		const { email, password } = req.body || {};
-		if (!email || !password) return res.status(400).json({ error: 'BadRequest', message: 'email and password are required' });
+		console.log('Extracted email:', email);
+		console.log('Extracted password:', password);
+		console.log('Email exists:', !!email);
+		console.log('Password exists:', !!password);
+		
+		if (!email || !password) {
+			console.log('Validation failed - missing email or password');
+			return res.status(400).json({ 
+				error: 'BadRequest', 
+				message: 'email and password are required',
+				received: { email: !!email, password: !!password },
+				body: req.body
+			});
+		}
 
+		console.log('Validation passed, proceeding with Supabase auth...');
 		const supabase = getSupabase();
 		const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 		if (error) return res.status(401).json({ error: 'AuthFailed', message: error.message });
@@ -63,6 +83,7 @@ router.post('/login', async (req, res) => {
 			token: data.session?.access_token || null
 		});
 	} catch (err) {
+		console.error('Login error:', err);
 		return res.status(500).json({ error: 'ServerError', message: 'Login failed' });
 	}
 });
