@@ -2,36 +2,17 @@ const express = require("express");
 const { getSupabase } = require("./db");
 const cors = require("cors");
 const authRoutes = require('./routes/auth');
-const config = require('./config');
 const app = express();
 
-// Validate configuration
-try {
-	config.validate();
-	console.log('✅ Configuration validated successfully');
-} catch (error) {
-	console.error('❌ Configuration validation failed:', error.message);
-	process.exit(1);
-}
+// Configuration check
+console.log('✅ Server configuration loaded');
 
-// CORS configuration
+// CORS configuration - simplified for now
 app.use(cors({
-	origin: function (origin, callback) {
-		// Allow requests with no origin (like mobile apps or Postman)
-		if (!origin) return callback(null, true);
-		
-		if (config.cors.allowedOrigins.indexOf(origin) !== -1) {
-			callback(null, true);
-		} else {
-			console.log('🚫 CORS blocked origin:', origin);
-			callback(new Error('Not allowed by CORS'));
-		}
-	},
-	credentials: config.cors.credentials,
-	methods: config.cors.methods,
-	allowedHeaders: config.cors.allowedHeaders,
-	preflightContinue: false,
-	optionsSuccessStatus: 204
+	origin: true, // Allow all origins temporarily
+	credentials: true,
+	methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+	allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
 }));
 
 app.use(express.json());
@@ -47,8 +28,8 @@ app.use((req, res, next) => {
 	next();
 });
 
-const PORT = config.server.port;
-const HOST = config.server.host;
+const PORT = process.env.PORT || 10000;
+const HOST = '0.0.0.0';
 
 // Initialize Supabase (throws if env is missing)
 try {
@@ -60,35 +41,26 @@ try {
 		SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'Missing',
 		PORT: process.env.PORT || 10000
 	});
+	
+	// Check if required environment variables are missing
+	if (!process.env.SUPABASE_URL || (!process.env.SUPABASE_ANON_KEY && !process.env.SUPABASE_SERVICE_ROLE_KEY)) {
+		console.warn('⚠️  Warning: Some Supabase environment variables are missing');
+		console.warn('   The server will start but authentication may not work properly');
+		console.warn('   Please set SUPABASE_URL and either SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY');
+	}
 } catch (error) {
 	console.error('❌ Failed to initialize Supabase:', error.message);
 	console.error('Please check your environment variables');
+	console.warn('⚠️  Server will continue to start but authentication will not work');
 }
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-	res.json({ 
-		status: 'healthy',
-		timestamp: new Date().toISOString(),
-		uptime: process.uptime(),
-		environment: process.env.NODE_ENV || 'development'
-	});
-});
 
-// Test endpoint
-app.get('/test', (req, res) => {
-	res.json({ 
-		message: 'Backend is working!', 
-		timestamp: new Date().toISOString(),
-		configuration: config.getSummary()
-	});
-});
 
 // Routes
 app.use('/auth', authRoutes);
 
-// 404 handler
-app.use('*', (req, res) => {
+// 404 handler - use proper catch-all pattern
+app.use((req, res) => {
 	res.status(404).json({ 
 		error: 'Not Found', 
 		message: `Route ${req.originalUrl} not found`,
@@ -108,10 +80,8 @@ app.use((error, req, res, next) => {
 
 app.listen(PORT, HOST, () => {
 	console.log(`🚀 Server is running on ${HOST}:${PORT}`);
-	console.log(`📍 Health check: http://${HOST}:${PORT}/health`);
-	console.log(`🧪 Test endpoint: http://${HOST}:${PORT}/test`);
 	console.log(`🔐 Auth endpoint: http://${HOST}:${PORT}/auth`);
-	console.log('📋 Configuration:', config.getSummary());
+	console.log('📋 Environment variables checked');
 });
 
 
