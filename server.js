@@ -15,7 +15,17 @@ app.use(cors({
 	allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
 }));
 
-app.use(express.json());
+// Body parsing middleware with specific options
+app.use(express.json({
+	limit: '10mb',
+	verify: (req, res, buf) => {
+		console.log('🔍 Raw body buffer length:', buf.length);
+		console.log('🔍 Raw body buffer:', buf.toString());
+	}
+}));
+
+// Also parse URL-encoded bodies
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Debug middleware - log all requests
 app.use((req, res, next) => {
