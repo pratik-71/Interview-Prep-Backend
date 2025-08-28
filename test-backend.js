@@ -6,19 +6,19 @@ async function testBackend() {
     
     try {
         // Test 1: Check if backend is running
-        console.log('🧪 Testing backend connectivity...');
+        // Testing backend connectivity
         const testResponse = await fetch(`${baseUrl}/test`);
         const testData = await testResponse.json();
-        console.log('✅ Test endpoint response:', testData);
+        // Test endpoint response received
         
         // Test 2: Test login endpoint with sample data
-        console.log('\n🧪 Testing login endpoint...');
+        // Testing login endpoint
         const loginData = {
             email: 'test@example.com',
             password: 'testpassword123'
         };
         
-        console.log('📤 Sending login data:', loginData);
+        // Sending login data
         
         const loginResponse = await fetch(`${baseUrl}/auth/login`, {
             method: 'POST',
@@ -30,17 +30,16 @@ async function testBackend() {
         });
         
         const loginResult = await loginResponse.json();
-        console.log('📡 Login response status:', loginResponse.status);
-        console.log('📦 Login response body:', loginResult);
+        // Login response received
         
         if (loginResponse.ok) {
-            console.log('✅ Login endpoint working!');
+            // Login endpoint working
         } else {
-            console.log('❌ Login endpoint error:', loginResult);
+            // Login endpoint error
         }
         
     } catch (error) {
-        console.error('❌ Test failed:', error.message);
+        // Test failed
     }
 }
 
