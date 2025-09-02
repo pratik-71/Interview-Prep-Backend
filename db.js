@@ -26,7 +26,11 @@ function getSupabase() {
 		}
 
 		supabaseClient = createClient(supabaseUrl, supabaseKey, {
-			auth: { autoRefreshToken: false, persistSession: false },
+			auth: { 
+				autoRefreshToken: true,  // Enable auto-refresh
+				persistSession: true,    // Enable session persistence
+				detectSessionInUrl: false // Don't detect session in URL
+			},
 			db: { schema: 'public' },
 		});
 	}

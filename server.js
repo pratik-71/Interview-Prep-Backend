@@ -69,7 +69,10 @@ app.use((error, req, res, next) => {
 });
 
 app.listen(PORT, HOST, () => {
-	// Server started successfully
+	console.log(`🚀 Backend server is running on http://${HOST}:${PORT}`);
+	console.log(`📊 Analytics API: http://${HOST}:${PORT}/analytics`);
+	console.log(`🔐 Auth API: http://${HOST}:${PORT}/auth`);
+	console.log(`⏰ Started at: ${new Date().toLocaleString()}`);
 });
 
 

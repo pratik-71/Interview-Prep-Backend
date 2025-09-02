@@ -40,7 +40,8 @@ router.post('/register', async (req, res) => {
 		return res.status(201).json({
 			message: 'Registered and logged in',
 			user: mapUser(signInData.user),
-			token: signInData.session?.access_token || null
+			token: signInData.session?.access_token || null,
+			refreshToken: signInData.session?.refresh_token || null
 		});
 	} catch (err) {
 		return res.status(500).json({ error: 'ServerError', message: 'Registration failed' });
@@ -65,7 +66,8 @@ router.post('/login', async (req, res) => {
 		return res.json({
 			message: 'Login successful',
 			user: mapUser(data.user),
-			token: data.session?.access_token || null
+			token: data.session?.access_token || null,
+			refreshToken: data.session?.refresh_token || null
 		});
 	} catch (err) {
 		return res.status(500).json({ error: 'ServerError', message: 'Login failed' });
@@ -75,6 +77,35 @@ router.post('/login', async (req, res) => {
 // Current user
 router.get('/me', requireAuth, async (req, res) => {
 	return res.json({ user: mapUser(req.user) });
+});
+
+// Refresh token
+router.post('/refresh', async (req, res) => {
+	try {
+		const { refreshToken } = req.body || {};
+		
+		if (!refreshToken) {
+			return res.status(400).json({ 
+				error: 'BadRequest', 
+				message: 'refreshToken is required'
+			});
+		}
+		
+		const supabase = getSupabase();
+		const { data, error } = await supabase.auth.refreshSession({
+			refresh_token: refreshToken
+		});
+		
+		if (error) return res.status(401).json({ error: 'AuthFailed', message: error.message });
+
+		return res.json({
+			message: 'Token refreshed successfully',
+			token: data.session?.access_token || null,
+			refreshToken: data.session?.refresh_token || null
+		});
+	} catch (err) {
+		return res.status(500).json({ error: 'ServerError', message: 'Token refresh failed' });
+	}
 });
 
 module.exports = router;
