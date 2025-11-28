@@ -3,54 +3,78 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const { getSupabase } = require('../db');
 
-// Update user progress function - using actual database schema
+// Create a new test record for each test completion
+async function createTestRecord(userId, data) {
+  try {
+    const supabase = getSupabase();
+    
+    // Always create a new test record instead of updating
+    const { error: createError } = await supabase
+      .from('user_progress')
+      .insert({
+        user_id: userId,
+        test_date: new Date().toISOString(),
+        technology: data.technology || 'Interview Practice',
+        total_questions: data.totalQuestions || 0,
+        questions_answered: data.questionsAnswered || 0,
+        total_marks: data.totalMarks || 0,
+        max_possible_marks: data.maxPossibleMarks || 0,
+        percentage_score: data.percentageScore || 0,
+        time_spent: data.timeSpent || 0
+      });
+    
+    if (createError) throw createError;
+  } catch (error) {
+    throw error;
+  }
+}
+
+// Update user progress for individual question submissions (accumulate for same test)
 async function updateUserProgress(userId, data) {
   try {
     const supabase = getSupabase();
     
-    // Check if user progress record exists
-    const { data: existingProgress, error: checkError } = await supabase
+    // Get the most recent test record for this user
+    const { data: recentTest, error: checkError } = await supabase
       .from('user_progress')
       .select('*')
       .eq('user_id', userId)
+      .order('test_date', { ascending: false })
+      .limit(1)
       .single();
     
-    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "not found"
+    if (checkError && checkError.code !== 'PGRST116') {
       throw checkError;
     }
     
-    if (!existingProgress) {
-             // Create new user progress record - using correct schema
-       const { error: createError } = await supabase
-         .from('user_progress')
-         .insert({
-           user_id: userId,
-           test_date: new Date().toISOString(),
-           technology: data.technology || 'Interview Practice',
-           total_questions: data.totalQuestions || 0,
-           questions_answered: data.questionsAnswered || 0,
-           total_marks: data.totalMarks || 0,
-           max_possible_marks: data.maxPossibleMarks || 0,
-           percentage_score: data.percentageScore || 0,
-           time_spent: data.timeSpent || 0
-         });
-      
-      if (createError) throw createError;
+    // If no recent test or it's from a different day, create a new record
+    const now = new Date();
+    const recentTestDate = recentTest ? new Date(recentTest.test_date) : null;
+    const isSameDay = recentTestDate && 
+      now.getDate() === recentTestDate.getDate() &&
+      now.getMonth() === recentTestDate.getMonth() &&
+      now.getFullYear() === recentTestDate.getFullYear();
+    
+    if (!recentTest || !isSameDay) {
+      // Create new test record
+      await createTestRecord(userId, data);
     } else {
-             // Update existing user progress record - using correct schema
-       const { error: updateError } = await supabase
-         .from('user_progress')
-         .update({
-           test_date: new Date().toISOString(),
-           technology: data.technology || 'Interview Practice',
-           total_questions: existingProgress.total_questions + (data.totalQuestions || 0),
-           questions_answered: existingProgress.questions_answered + (data.questionsAnswered || 0),
-           total_marks: existingProgress.total_marks + (data.totalMarks || 0),
-           max_possible_marks: existingProgress.max_possible_marks + (data.maxPossibleMarks || 0),
-           percentage_score: existingProgress.questions_answered > 0 ? (existingProgress.total_marks + (data.totalMarks || 0)) / (existingProgress.questions_answered + (data.questionsAnswered || 0)) * 10 : 0,
-           time_spent: existingProgress.time_spent + (data.timeSpent || 0)
-         })
-         .eq('user_id', userId);
+      // Update existing test record (same day)
+      const newTotalMarks = recentTest.total_marks + (data.totalMarks || 0);
+      const newMaxPossibleMarks = recentTest.max_possible_marks + (data.maxPossibleMarks || 0);
+      const newPercentageScore = newMaxPossibleMarks > 0 ? (newTotalMarks / newMaxPossibleMarks) * 100 : 0;
+      
+      const { error: updateError } = await supabase
+        .from('user_progress')
+        .update({
+          total_questions: recentTest.total_questions + (data.totalQuestions || 0),
+          questions_answered: recentTest.questions_answered + (data.questionsAnswered || 0),
+          total_marks: newTotalMarks,
+          max_possible_marks: newMaxPossibleMarks,
+          percentage_score: newPercentageScore,
+          time_spent: recentTest.time_spent + (data.timeSpent || 0)
+        })
+        .eq('id', recentTest.id);
       
       if (updateError) throw updateError;
     }
@@ -86,32 +110,62 @@ router.get('/summary', requireAuth, async (req, res) => {
     
     if (testsError) throw testsError;
     
-    // Get technology performance - using user_progress table
-    const { data: technologyPerformance, error: techError } = await supabase
+    // Get all tests for technology performance calculation
+    const { data: allTests, error: techError } = await supabase
       .from('user_progress')
-      .select('total_marks, time_spent, total_questions, questions_answered, percentage_score')
+      .select('technology, total_marks, time_spent, total_questions, questions_answered, percentage_score')
       .eq('user_id', userId);
     
     if (techError) throw techError;
     
-    // Process user progress data for analytics - using correct schema
+    // Calculate aggregate statistics from all tests
+    const totalTests = allTests?.length || 0;
+    const totalQuestions = allTests?.reduce((sum, test) => sum + (test.questions_answered || 0), 0) || 0;
+    const totalMarks = allTests?.reduce((sum, test) => sum + (test.total_marks || 0), 0) || 0;
+    const totalMaxMarks = allTests?.reduce((sum, test) => sum + (test.max_possible_marks || 0), 0) || 0;
+    const totalTime = allTests?.reduce((sum, test) => sum + (test.time_spent || 0), 0) || 0;
+    const averageScore = totalMaxMarks > 0 ? (totalMarks / totalMaxMarks) * 100 : 0;
+    
+    // Process user progress data for analytics
     const progressStats = {
-      total_tests: 1, // Since we're using a single record approach
-      total_questions: progress?.total_questions || 0,
-      total_marks: progress?.total_marks || 0,
-      best_marks: progress?.total_marks || 0, // Use total_marks as best_marks
-      total_time: progress?.time_spent || 0,
-      average_score: progress?.percentage_score || 0
+      total_tests: totalTests,
+      total_questions: totalQuestions,
+      total_marks: totalMarks,
+      best_marks: allTests?.length > 0 ? Math.max(...allTests.map(t => t.total_marks || 0)) : 0,
+      total_time: totalTime,
+      average_score: averageScore
     };
     
-    const technologyPerformanceArray = [{
-      technology: progress?.technology || 'Interview Practice',
-      tests_taken: 1,
-      average_score: progress?.percentage_score || 0,
-      best_score: progress?.total_marks || 0,
-      average_time: progress?.time_spent || 0,
-      total_questions: progress?.total_questions || 0
-    }];
+    // Group by technology for performance stats
+    const techMap = new Map();
+    allTests?.forEach(test => {
+      const tech = test.technology || 'Interview Practice';
+      if (!techMap.has(tech)) {
+        techMap.set(tech, {
+          technology: tech,
+          tests_taken: 0,
+          total_marks: 0,
+          total_max_marks: 0,
+          total_time: 0,
+          total_questions: 0
+        });
+      }
+      const techData = techMap.get(tech);
+      techData.tests_taken++;
+      techData.total_marks += test.total_marks || 0;
+      techData.total_max_marks += test.max_possible_marks || 0;
+      techData.total_time += test.time_spent || 0;
+      techData.total_questions += test.questions_answered || 0;
+    });
+    
+    const technologyPerformanceArray = Array.from(techMap.values()).map(techData => ({
+      technology: techData.technology,
+      tests_taken: techData.tests_taken,
+      average_score: techData.total_max_marks > 0 ? (techData.total_marks / techData.total_max_marks) * 100 : 0,
+      best_score: techData.total_marks > 0 ? techData.total_marks : 0,
+      average_time: techData.tests_taken > 0 ? techData.total_time / techData.tests_taken : 0,
+      total_questions: techData.total_questions
+    }));
     
     const analytics = {
       progress: progress || null,
@@ -141,10 +195,11 @@ router.post('/test-results', requireAuth, async (req, res) => {
       timeSpent
     } = req.body;
     
-    // Update user progress directly (no separate test_results table)
-    await updateUserProgress(userId, {
+    // Create a new test record for each test completion
+    await createTestRecord(userId, {
       technology: technology || 'Interview Practice',
-      totalQuestions: questionsAnswered,
+      totalQuestions: totalQuestions,
+      questionsAnswered: questionsAnswered,
       totalMarks: totalMarks,
       maxPossibleMarks: maxPossibleMarks,
       percentageScore: percentageScore,
@@ -168,30 +223,30 @@ router.get('/test-history', requireAuth, async (req, res) => {
     const userId = req.user.id;
     const supabase = getSupabase();
     
-    // Get user progress as test history
-    const { data: userProgress, error } = await supabase
+    // Get all test records for this user
+    const { data: testHistory, error } = await supabase
       .from('user_progress')
       .select('*')
       .eq('user_id', userId)
-      .single();
+      .order('test_date', { ascending: false });
     
-    if (error && error.code !== 'PGRST116') throw error;
+    if (error) throw error;
     
-         // Format as test history - using correct schema
-     const testHistory = userProgress ? [{
-       id: userProgress.id,
-       user_id: userProgress.user_id,
-       test_date: userProgress.test_date,
-       technology: userProgress.technology,
-       total_questions: userProgress.total_questions,
-       questions_answered: userProgress.questions_answered,
-       total_marks: userProgress.total_marks,
-       max_possible_marks: userProgress.max_possible_marks,
-       percentage_score: userProgress.percentage_score,
-       time_spent: userProgress.time_spent
-     }] : [];
+    // Format as test history - using correct schema
+    const formattedHistory = (testHistory || []).map(test => ({
+      id: test.id,
+      user_id: test.user_id,
+      test_date: test.test_date,
+      technology: test.technology,
+      total_questions: test.total_questions,
+      questions_answered: test.questions_answered,
+      total_marks: test.total_marks,
+      max_possible_marks: test.max_possible_marks,
+      percentage_score: test.percentage_score,
+      time_spent: test.time_spent
+    }));
     
-    res.json(testHistory);
+    res.json(formattedHistory);
     
   } catch (error) {
     console.error('Test history error:', error);
@@ -218,13 +273,25 @@ router.post('/question-results', requireAuth, async (req, res) => {
       test_date
     } = req.body;
     
+    // Normalize marks: audio answers are out of 100, text answers are out of 10
+    // Normalize everything to a 10-point scale for consistency
+    let normalizedMarks = marks_obtained;
+    let normalizedMaxMarks = max_marks || 10;
+    
+    // If marks are greater than 10, it's likely an audio answer (0-100 scale)
+    if (max_marks > 10) {
+      normalizedMarks = (marks_obtained / max_marks) * 10;
+      normalizedMaxMarks = 10;
+    }
+    
     // Update user progress with question data instead of separate question_results table
     await updateUserProgress(userId, {
       technology: technology || 'Interview Practice',
       totalQuestions: 1,
-      totalMarks: marks_obtained,
-      maxPossibleMarks: max_marks || 10,
-      percentageScore: (marks_obtained / (max_marks || 10)) * 10, // Convert to 10-point scale
+      questionsAnswered: 1,
+      totalMarks: normalizedMarks,
+      maxPossibleMarks: normalizedMaxMarks,
+      percentageScore: (normalizedMarks / normalizedMaxMarks) * 100,
       timeSpent: time_spent || 0
     });
     
